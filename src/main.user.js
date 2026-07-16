@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v14.3 Self-Healing)
+// @name         Lotte Mart - Supabase Realtime (v14.5 Self-Healing)
 // @namespace    https://grok.x.ai
 // @version      14.4
 // @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
