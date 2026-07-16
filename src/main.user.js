@@ -336,21 +336,7 @@
     }
 
     // ==================== STATUS BADGE ====================
-    function createStatusBadge() {
-        const badge = document.createElement('div');
-        badge.style.cssText = `
-            position: fixed; bottom: 12px; right: 12px; 
-            background: #22c55e; color: white; padding: 6px 14px; 
-            border-radius: 8px; font-size: 13px; font-weight: 600;
-            z-index: 999999; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            display: flex; align-items: center; gap: 6px;
-        `;
-        badge.innerHTML = `
-            <span>Lotem v14</span> 
-            <span style="background:rgba(255,255,255,0.3); padding:1px 6px; border-radius:4px; font-size:11px;">Self-Healing</span>
-        `;
-        document.body.appendChild(badge);
-    }
+    
 
     // ==================== START ====================
     async function start() {
@@ -368,8 +354,6 @@
         setInterval(updateWorkerStatus, 45000);
         setInterval(keepSessionAlive, KEEP_ALIVE_INTERVAL);
         setInterval(cleanupProcessedJobs, 15 * 60 * 1000);
-
-        createStatusBadge();
 
         logger('info', 'Lotem v14 Self-Healing started (Auto reload on timeout + Cache enabled)');
     }
