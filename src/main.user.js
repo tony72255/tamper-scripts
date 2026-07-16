@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Lotte Mart - Supabase Realtime (v14 Self-Healing)
 // @namespace    https://grok.x.ai
-// @version      14.2
+// @version      14.3
 // @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
 // @author       Lotem
 @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
