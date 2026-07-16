@@ -4,8 +4,8 @@
 // @version      14.4
 // @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
 // @author       Lotem
-//@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
-//@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
     const WORKER_SECRET = "lotte-mart-worker-2026";
     const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
 
-    // === Tối ưu cho Self-Healing ===
+    // === abcdTối ưu cho Self-Healing ===
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
     const FALLBACK_POLL_INTERVAL = 4000;           // Giảm xuống 4s cho nhanh hơn
