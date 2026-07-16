@@ -12,8 +12,8 @@
 // @grant        GM_notification
 // @connect      gmd.lottemart.vn
 // @connect      raw.githubusercontent.com
-// @updateURL    https://raw.githubusercontent.com/yourname/tamper-scripts/main/src/main.user.js
-// @downloadURL  https://raw.githubusercontent.com/yourname/tamper-scripts/main/src/main.user.js
+// @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+// @downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @supportURL   https://t.me/your_telegram_bot
 // ==/UserScript==
 
