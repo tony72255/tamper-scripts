@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.1 Self-Healing)
+// @name         Lotte Mart - Supabase Realtime (v15.2 Self-Healing)
 // @namespace    https://grok.x.ai
-// @version      15.1
+// @version      15.2
 // @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
 // @author       Lotem
 @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
@@ -23,25 +23,22 @@
     const WORKER_SECRET = "lotte-mart-worker-2026";
     const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
 
-    // ===  Q A Q Q QƯ DQWC QWDQWD QWD QƯDTối ưu cho Self-Healing ===
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
-    const FALLBACK_POLL_INTERVAL = 4000;           // Giảm xuống 4s cho nhanh hơn
+    const FALLBACK_POLL_INTERVAL = 2000;           // Tối ưu 2s để giảm delay (kết hợp Realtime là chính)
     const LOG_LEVEL = 'info';
     const PROCESSED_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
-    // === Keep Alive & Cache ===
-    const KEEP_ALIVE_INTERVAL = 12 * 60 * 1000;    // Reload trang mỗi 12 phút (điều chỉnh 8-15 phút tùy timeout thực tế)
-    const CACHE_TTL_MS = 60 * 1000;                // Cache kết quả 60 giây
-    const REQUEST_TIMEOUT_MS = 25000;              // Timeout request sau 25s → tự reload
+    const KEEP_ALIVE_INTERVAL = 12 * 60 * 1000;
+    const CACHE_TTL_MS = 60 * 1000;
+    const REQUEST_TIMEOUT_MS = 25000;
 
     let jobQueue = [];
     let activeJobs = 0;
     let processedJobIds = new Map();
     let supabaseClient = null;
-    let resultCache = new Map();                   // Cache mới
+    let resultCache = new Map();
 
-    // ==================== LOGGER ====================
     function logger(level, ...args) {
         const levels = { debug: 0, info: 1, warn: 2, error: 3 };
         if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 1)) {
@@ -52,7 +49,6 @@
         }
     }
 
-    // ==================== SUPABASE ====================
     function initSupabase() {
         if (typeof supabase !== 'undefined' && supabase.createClient) {
             supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -96,6 +92,7 @@
             const jobs = JSON.parse(res.responseText || "[]");
             jobs.forEach(row => {
                 if (!processedJobIds.has(row.id)) {
+                    processedJobIds.set(row.id, Date.now()); // Claim sớm để tránh race với Realtime
                     addJobToQueue({
                         job_id: row.id,
                         str_cd: row.str_cd || "",
@@ -123,7 +120,6 @@
         } catch (e) {}
     }
 
-    // ==================== CACHE ====================
     function getCachedResult(strCd, srcmkCd) {
         const key = `${strCd}:${srcmkCd}`;
         const cached = resultCache.get(key);
@@ -142,7 +138,6 @@
         }
     }
 
-    // ==================== REALTIME ====================
     function subscribeToPendingJobs() {
         if (!supabaseClient) return;
 
@@ -156,6 +151,7 @@
             }, (payload) => {
                 const job = payload.new;
                 if (job && job.id && !processedJobIds.has(job.id)) {
+                    processedJobIds.set(job.id, Date.now()); // Claim sớm để tránh duplicate processing (race Realtime + poll)
                     addJobToQueue({
                         job_id: job.id,
                         str_cd: job.str_cd || "",
@@ -172,35 +168,33 @@
             });
     }
 
-    // ==================== PRODUCT ====================
     function padStrCd(strCd) { return String(strCd).padStart(5, "0"); }
 
     function buildProductSearchSSV(strCd, srcmkCd) {
-    // Dùng array + join để tránh lỗi syntax do chuỗi quá dài
-    const trackingParts = [
-        "_ga=GA1.1.1926722522.1779273587",
-        "_tt_enable_cookie=1",
-        "_ttp=01KS2FGQ5DSMV0QST60J6GQ9NR_.tt.1",
-        "_fbp=fb.1.1779273589322.638506231644770626",
-        "_gcl_au=1.1.521987338.1779273587.2028705533.1779275328.1779275328",
-        "KHANUSER=z4rrvm1e3ie7hj",
-        "ttcsid=1781444122718::1bply3lfNEMONUk-wYjJ.5.1781444136006.0::1.-3701.0::0.0.0.0::0.0.0",
-        "ttcsid_D34HLIRC77U5SFKT9RAG=1781444122717::Ys34mY0t4l3zL3CvLbae.5.1781444136009.1",
-        "_ga_6QLJ7DM4XW=GS2.1.s1781443507$o6$g1$t1781444233$j60$l0$h0"
-    ];
+        const trackingParts = [
+            "_ga=GA1.1.1926722522.1779273587",
+            "_tt_enable_cookie=1",
+            "_ttp=01KS2FGQ5DSMV0QST60J6GQ9NR_.tt.1",
+            "_fbp=fb.1.1779273589322.638506231644770626",
+            "_gcl_au=1.1.521987338.1779273587.2028705533.1779275328.1779275328",
+            "KHANUSER=z4rrvm1e3ie7hj",
+            "ttcsid=1781444122718::1bply3lfNEMONUk-wYjJ.5.1781444136006.0::1.-3701.0::0.0.0.0::0.0.0",
+            "ttcsid_D34HLIRC77U5SFKT9RAG=1781444122717::Ys34mY0t4l3zL3CvLbae.5.1781444136009.1",
+            "_ga_6QLJ7DM4XW=GS2.1.s1781443507$o6$g1$t1781444233$j60$l0$h0"
+        ];
 
-    const tracking = trackingParts.join("\u001e");
+        const tracking = trackingParts.join("\u001e");
 
-    const business = 
-        "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
-        "\u001eDataset:search" +
-        "\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)" +
-        "\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003" +
-        "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003" +
-        "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
+        const business = 
+            "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
+            "\u001eDataset:search" +
+            "\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)" +
+            "\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003" +
+            "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003" +
+            "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
 
-    return "SSV:utf-8\u001e" + tracking + "\u001e" + business + "\u001e\u001e";
-}
+        return "SSV:utf-8\u001e" + tracking + "\u001e" + business + "\u001e\u001e";
+    }
 
     function parseProductResponse(ssvText) {
         if (!ssvText || ssvText.includes("ErrorCode:int=-1")) {
@@ -224,10 +218,8 @@
         return { success: true, data: result };
     }
 
-    // ==================== FETCH WITH SELF-HEALING ====================
     function fetchProductData(strCd, srcmkCd) {
         return new Promise(resolve => {
-            // Kiểm tra cache trước
             const cached = getCachedResult(strCd, srcmkCd);
             if (cached) {
                 logger('debug', `Cache hit: ${strCd}-${srcmkCd}`);
@@ -273,7 +265,6 @@
         });
     }
 
-    // ==================== PROCESS JOB ====================
     async function processNextJob() {
         if (activeJobs >= MAX_CONCURRENT || jobQueue.length === 0) return;
 
@@ -294,8 +285,6 @@
             result: { summary_text: summaryText, raw_data: result.data || [] },
             processed_at: new Date().toISOString()
         });
-
-        // Sau khi update Supabase xong, ga.py sẽ gửi Telegram (đã tách ra)
 
         setTimeout(() => deleteJob(job.job_id), 10 * 60 * 1000);
 
@@ -320,7 +309,6 @@
         return text;
     }
 
-    // ==================== KEEP ALIVE + CLEANUP ====================
     function keepSessionAlive() {
         logger('info', '🔄 Keep-alive: Reload trang để duy trì session Lotte Mart');
         location.reload();
@@ -335,10 +323,6 @@
         }
     }
 
-    // ==================== STATUS BADGE ====================
-    
-
-    // ==================== START ====================
     async function start() {
         const isMainPage = location.href.includes("gmd/index.html") || location.href.includes("m.lottemart.vn/gmd");
         if (!isMainPage) return;
@@ -349,7 +333,6 @@
         await updateWorkerStatus();
         getPendingJobs();
 
-        // Self-Healing intervals
         setInterval(getPendingJobs, FALLBACK_POLL_INTERVAL);
         setInterval(updateWorkerStatus, 45000);
         setInterval(keepSessionAlive, KEEP_ALIVE_INTERVAL);
