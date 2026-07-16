@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.3 Self-Healing)
+// @name         Lotte Mart - Supabase Realtime (v15.4 Stable)
 // @namespace    https://grok.x.ai
-// @version      15.3
-// @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
+// @version      15.4
+// @description  Stable version - Early claim + Fast poll 2s
 // @author       Lotem
-//@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
-//@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
@@ -17,6 +17,7 @@
 (function () {
     'use strict';
 
+    // ==================== CONFIG ====================
     const SUPABASE_URL = "https://xdnawsvcbjqxwvufrkxb.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkbmF3c3ZjYmpxeHd2dWZya3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTQ0NTgsImV4cCI6MjA5OTY5MDQ1OH0.TC46lk0CXuo0sp_X8KgbDAnnSkzRSRkl1XXuBixl3zY";
     const WORKER_SECRET = "lotte-mart-worker-2026";
@@ -24,7 +25,7 @@
 
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
-    const FALLBACK_POLL_INTERVAL = 2000;           // Đã giảm xuống 2s
+    const FALLBACK_POLL_INTERVAL = 2000;           // 2 giây (nhanh)
     const LOG_LEVEL = 'info';
     const PROCESSED_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
@@ -41,7 +42,7 @@
     function logger(level, ...args) {
         const levels = { debug: 0, info: 1, warn: 2, error: 3 };
         if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 1)) {
-            const prefix = `[Lotem v14 ${level.toUpperCase()}]`;
+            const prefix = `[Lotem v15 ${level.toUpperCase()}]`;
             if (level === 'error') console.error(prefix, ...args);
             else if (level === 'warn') console.warn(prefix, ...args);
             else console.log(prefix, ...args);
@@ -91,7 +92,7 @@
             const jobs = JSON.parse(res.responseText || "[]");
             jobs.forEach(row => {
                 if (!processedJobIds.has(row.id)) {
-                    processedJobIds.set(row.id, Date.now());
+                    processedJobIds.set(row.id, Date.now()); // Claim sớm
                     addJobToQueue({
                         job_id: row.id,
                         str_cd: row.str_cd || "",
@@ -119,21 +120,6 @@
         } catch (e) {}
     }
 
-    // ==================== ATOMIC CLAIM (Mới - fix duplicate) ====================
-    async function claimJob(jobId) {
-        try {
-            const res = await supabaseRequest("PATCH", `/jobs?id=eq.${jobId}&status=eq.pending`, {
-                status: "processing",
-                claimed_at: new Date().toISOString(),
-                worker_secret: WORKER_SECRET
-            });
-            const updatedRows = JSON.parse(res.responseText || "[]");
-            return updatedRows.length > 0;
-        } catch (e) {
-            return false;
-        }
-    }
-
     function getCachedResult(strCd, srcmkCd) {
         const key = `${strCd}:${srcmkCd}`;
         const cached = resultCache.get(key);
@@ -156,16 +142,16 @@
         if (!supabaseClient) return;
 
         supabaseClient
-            .channel('pending-jobs-v14')
+            .channel('pending-jobs-v15')
             .on('postgres_changes', {
                 event: 'INSERT',
                 schema: 'public',
                 table: 'jobs',
                 filter: 'status=eq.pending'
-            },              (payload) => {
+            }, (payload) => {
                 const job = payload.new;
                 if (job && job.id && !processedJobIds.has(job.id)) {
-                    processedJobIds.set(job.id, Date.now());
+                    processedJobIds.set(job.id, Date.now()); // Claim sớm
                     addJobToQueue({
                         job_id: job.id,
                         str_cd: job.str_cd || "",
@@ -173,8 +159,6 @@
                         batch_id: job.batch_id || "",
                         chat_id: job.chat_id || null
                     });
-                }
-            })
                 }
             })
             .subscribe((status) => {
@@ -205,7 +189,7 @@
             "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
             "\u001eDataset:search" +
             "\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)" +
-            "\u001eN\u001f" + strCd + "\u001f" + srcmk_cd + "\u001f\u0003" +
+            "\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003" +
             "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003" +
             "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
 
@@ -246,7 +230,7 @@
 
             const timeoutId = setTimeout(() => {
                 requestTimedOut = true;
-                logger('warn', `Request timeout (${REQUEST_TIMEOUT_MS/1000}s) → Tự động reload trang`);
+                logger('warn', `Request timeout → Auto reload`);
                 location.reload();
                 resolve({ success: false, data: [], timedOut: true });
             }, REQUEST_TIMEOUT_MS);
@@ -273,7 +257,7 @@
                     clearTimeout(timeoutId);
                     if (requestTimedOut) return;
 
-                    logger('warn', 'Network error → Tự động reload trang để khôi phục session');
+                    logger('warn', 'Network error → Auto reload');
                     location.reload();
                     resolve({ success: false, data: [], timedOut: true });
                 }
@@ -326,7 +310,7 @@
     }
 
     function keepSessionAlive() {
-        logger('info', '🔄 Keep-alive: Reload trang để duy trì session Lotte Mart');
+        logger('info', '🔄 Keep-alive: Reload trang');
         location.reload();
     }
 
@@ -354,7 +338,7 @@
         setInterval(keepSessionAlive, KEEP_ALIVE_INTERVAL);
         setInterval(cleanupProcessedJobs, 15 * 60 * 1000);
 
-        logger('info', 'Lotem v14 Self-Healing started (Auto reload on timeout + Cache enabled + Atomic Claim)');
+        logger('info', 'Lotem v15.2 Stable started');
     }
 
     start();
