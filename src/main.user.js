@@ -4,9 +4,8 @@
 // @version      14.4
 // @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
 // @author       Lotem
-@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
-@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
-// ===========================
+//@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+//@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
