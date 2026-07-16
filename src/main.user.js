@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v14.6 Self-Healing)
+// @name         Lotte Mart - Supabase Realtime (v14.7 Self-Healing)
 // @namespace    https://grok.x.ai
-// @version      14.6
+// @version      14.7
 // @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
 // @author       Lotem
 @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
@@ -17,13 +17,13 @@
 (function () {
     'use strict';
 
-    // =========ưefsdvcsdvsdvxcvwevwevewvwevwev=========== CONFIG ====================
+    // ==================== CONFIG ====================
     const SUPABASE_URL = "https://xdnawsvcbjqxwvufrkxb.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkbmF3c3ZjYmpxeHd2dWZya3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTQ0NTgsImV4cCI6MjA5OTY5MDQ1OH0.TC46lk0CXuo0sp_X8KgbDAnnSkzRSRkl1XXuBixl3zY";
     const WORKER_SECRET = "lotte-mart-worker-2026";
     const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
 
-    // === dTối ưu cho Self-Healing ===
+    // === Tối ưu cho Self-Healing ===
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
     const FALLBACK_POLL_INTERVAL = 4000;           // Giảm xuống 4s cho nhanh hơn
