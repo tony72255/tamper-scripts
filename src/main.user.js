@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    // ==================== CONFIG ====================
+    // =========ưefsdvcsdvsdvxcvwevwevewvwevwev=========== CONFIG ====================
     const SUPABASE_URL = "https://xdnawsvcbjqxwvufrkxb.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkbmF3c3ZjYmpxeHd2dWZya3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTQ0NTgsImV4cCI6MjA5OTY5MDQ1OH0.TC46lk0CXuo0sp_X8KgbDAnnSkzRSRkl1XXuBixl3zY";
     const WORKER_SECRET = "lotte-mart-worker-2026";
