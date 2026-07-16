@@ -92,16 +92,12 @@
             jobs.forEach(row => {
                 if (!processedJobIds.has(row.id)) {
                     processedJobIds.set(row.id, Date.now());
-                    claimJob(row.id).then(success => {
-                        if (success) {
-                            addJobToQueue({
-                                job_id: row.id,
-                                str_cd: row.str_cd || "",
-                                srcmk_cd: row.srcmk_cd || "",
-                                batch_id: row.batch_id || "",
-                                chat_id: row.chat_id || null
-                            });
-                        }
+                    addJobToQueue({
+                        job_id: row.id,
+                        str_cd: row.str_cd || "",
+                        srcmk_cd: row.srcmk_cd || "",
+                        batch_id: row.batch_id || "",
+                        chat_id: row.chat_id || null
                     });
                 }
             });
@@ -166,21 +162,19 @@
                 schema: 'public',
                 table: 'jobs',
                 filter: 'status=eq.pending'
-            }, (payload) => {
+            },              (payload) => {
                 const job = payload.new;
                 if (job && job.id && !processedJobIds.has(job.id)) {
                     processedJobIds.set(job.id, Date.now());
-                    claimJob(job.id).then(success => {
-                        if (success) {
-                            addJobToQueue({
-                                job_id: job.id,
-                                str_cd: job.str_cd || "",
-                                srcmk_cd: job.srcmk_cd || "",
-                                batch_id: job.batch_id || "",
-                                chat_id: job.chat_id || null
-                            });
-                        }
+                    addJobToQueue({
+                        job_id: job.id,
+                        str_cd: job.str_cd || "",
+                        srcmk_cd: job.srcmk_cd || "",
+                        batch_id: job.batch_id || "",
+                        chat_id: job.chat_id || null
                     });
+                }
+            })
                 }
             })
             .subscribe((status) => {
