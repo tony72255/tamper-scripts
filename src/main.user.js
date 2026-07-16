@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.4 Stable)
+// @name         Lotte Mart - Supabase Realtime (v15.5 Stable)
 // @namespace    https://grok.x.ai
-// @version      15.4
+// @version      15.5
 // @description  Stable version - Early claim + Fast poll 2s
 // @author       Lotem
 @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
