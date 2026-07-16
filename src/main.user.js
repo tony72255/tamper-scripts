@@ -176,6 +176,7 @@
     function padStrCd(strCd) { return String(strCd).padStart(5, "0"); }
 
     function buildProductSearchSSV(strCd, srcmkCd) {
+    // Dùng array + join để tránh lỗi syntax do chuỗi quá dài
     const trackingParts = [
         "_ga=GA1.1.1926722522.1779273587",
         "_tt_enable_cookie=1",
@@ -187,9 +188,9 @@
         "ttcsid_D34HLIRC77U5SFKT9RAG=1781444122717::Ys34mY0t4l3zL3CvLbae.5.1781444136009.1",
         "_ga_6QLJ7DM4XW=GS2.1.s1781443507$o6$g1$t1781444233$j60$l0$h0"
     ];
-    
+
     const tracking = trackingParts.join("\u001e");
-    
+
     const business = 
         "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
         "\u001eDataset:search" +
