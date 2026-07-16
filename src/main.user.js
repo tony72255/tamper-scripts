@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v14.9 Self-Healing)
+// @name         Lotte Mart - Supabase Realtime (v15 Self-Healing)
 // @namespace    https://grok.x.ai
-// @version      14.9
+// @version      15
 // @description  Self-Healing + Auto Reload on timeout + Cache + Clean Architecture
 // @author       Lotem
 @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
@@ -176,10 +176,30 @@
     function padStrCd(strCd) { return String(strCd).padStart(5, "0"); }
 
     function buildProductSearchSSV(strCd, srcmkCd) {
-        const tracking = "_ga=GA1.1.1926722522.1779273587\u001e_tt_enable_cookie=1\u001e_ttp=01KS2FGQ5DSMV0QST60J6GQ9NR_.tt.1\u001e_fbp=fb.1.1779273589322.638506231644770626\u001e_gcl_au=1.1.521987338.1779273587.2028705533.1779275328.1779275328\u001eKHANUSER=z4rrvm1e3ie7hj\u001ettcsid=1781444122718::1bply3lfNEMONUk-wYjJ.5.1781444136006.0::1.-3701.0::0.0.0.0::0.0.0\u001ettcsid_D34HLIRC77U5SFKT9RAG=1781444122717::Ys34mY0t4l3zL3CvLbae.5.1781444136009.1\u001e_ga_6QLJ7DM4XW=GS2.1.s1781443507$o6$g1$t1781444233$j60$l0$h0";
-        const business = "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false\u001eDataset:search\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003\u001eN\u001f\u0003\u001f\u0003\u001f\u0003\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
-        return "SSV:utf-8\u001e" + tracking + "\u001e" + business + "\u001e\u001e";
-    }
+    const trackingParts = [
+        "_ga=GA1.1.1926722522.1779273587",
+        "_tt_enable_cookie=1",
+        "_ttp=01KS2FGQ5DSMV0QST60J6GQ9NR_.tt.1",
+        "_fbp=fb.1.1779273589322.638506231644770626",
+        "_gcl_au=1.1.521987338.1779273587.2028705533.1779275328.1779275328",
+        "KHANUSER=z4rrvm1e3ie7hj",
+        "ttcsid=1781444122718::1bply3lfNEMONUk-wYjJ.5.1781444136006.0::1.-3701.0::0.0.0.0::0.0.0",
+        "ttcsid_D34HLIRC77U5SFKT9RAG=1781444122717::Ys34mY0t4l3zL3CvLbae.5.1781444136009.1",
+        "_ga_6QLJ7DM4XW=GS2.1.s1781443507$o6$g1$t1781444233$j60$l0$h0"
+    ];
+    
+    const tracking = trackingParts.join("\u001e");
+    
+    const business = 
+        "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
+        "\u001eDataset:search" +
+        "\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)" +
+        "\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003" +
+        "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003" +
+        "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
+
+    return "SSV:utf-8\u001e" + tracking + "\u001e" + business + "\u001e\u001e";
+}
 
     function parseProductResponse(ssvText) {
         if (!ssvText || ssvText.includes("ErrorCode:int=-1")) {
