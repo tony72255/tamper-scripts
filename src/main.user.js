@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.6 Atomic Claim)
+// @name         Lotte Mart - Supabase Realtime (v15.6.1 Atomic Claim)
 // @namespace    https://grok.x.ai
-// @version      15.6
+// @version      15.6.1
 // @description  Fixed duplicate issue with atomic job claiming (pending → processing)
 // @author       Lotem
 @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js 
@@ -13,16 +13,18 @@
 // @require      https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js
 // @run-at       document-end
 // ==UserScript==
-
+console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-size: 14px');
 (function () {
     'use strict';
-
+    console.log('%c[DEBUG] Bắt đầu chạy IIFE', 'color: yellow');
     // ==================== CONFIG ====================
     const SUPABASE_URL = "https://xdnawsvcbjqxwvufrkxb.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkbmF3c3ZjYmpxeHd2dWZya3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTQ0NTgsImV4cCI6MjA5OTY5MDQ1OH0.TC46lk0CXuo0sp_X8KgbDAnnSkzRSRkl1XXuBixl3zY";
     const WORKER_SECRET = "lotte-mart-worker-2026";
     const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
-
+    console.log('%c[DEBUG] Đã định nghĩa biến config', 'color: yellow');
+    // Tạm thời bỏ qua check URL để test
+    console.log('%c[DEBUG] Bắt đầu khởi động...', 'color: cyan');
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
     const FALLBACK_POLL_INTERVAL = 3000;           // Tăng nhẹ lên 3s để giảm race
