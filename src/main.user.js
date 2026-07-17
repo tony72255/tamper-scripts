@@ -1,9 +1,7 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.6.3 Fixed Page Detection)
+// @name         Lotte Mart - DEBUG v15.6.4 (Verbose Claim)
 // @namespace    https://grok.x.ai
-// @version      15.6.3
-// @description  Fixed page detection for Nexacro + Atomic Claim
-// @author       Lotem
+// @version      15.6.4
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
@@ -20,47 +18,23 @@
     const WORKER_SECRET = "lotte-mart-worker-2026";
     const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
 
-    const JOB_DELAY = 300;
-    const MAX_CONCURRENT = 2;
-    const FALLBACK_POLL_INTERVAL = 3000;
-    const LOG_LEVEL = 'info';
-    const PROCESSED_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-    const KEEP_ALIVE_INTERVAL = 12 * 60 * 1000;
-    const CACHE_TTL_MS = 60 * 1000;
-    const REQUEST_TIMEOUT_MS = 25000;
-
-    let jobQueue = [];
-    let activeJobs = 0;
     let processedJobIds = new Map();
-    let supabaseClient = null;
-    let resultCache = new Map();
 
     function logger(level, ...args) {
-        const levels = { debug: 0, info: 1, warn: 2, error: 3 };
-        if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 1)) {
-            const prefix = `[Lotem v15.6.3 ${level.toUpperCase()}]`;
-            if (level === 'error') console.error(prefix, ...args);
-            else if (level === 'warn') console.warn(prefix, ...args);
-            else console.log(prefix, ...args);
-        }
+        const prefix = `[Lotem DEBUG ${level.toUpperCase()}]`;
+        if (level === 'error') console.error(prefix, ...args);
+        else console.log(prefix, ...args);
     }
 
-    function initSupabase() {
-        if (typeof supabase !== 'undefined' && supabase.createClient) {
-            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        }
-    }
-
-    function supabaseRequest(method, path, body = null, extraHeaders = {}) {
+    function supabaseRequest(method, path, body = null) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
-                method: method,
+                method,
                 url: `${SUPABASE_REST}${path}`,
                 headers: {
                     "Content-Type": "application/json; charset=utf-8",
                     "apikey": SUPABASE_ANON_KEY,
-                    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-                    ...extraHeaders
+                    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
                 },
                 data: body ? JSON.stringify(body) : undefined,
                 onload: resolve,
@@ -69,28 +43,40 @@
         });
     }
 
-    async function updateWorkerStatus() {
+    async function getPendingJobs() {
+        logger('info', 'Đang query jobs pending...');
         try {
-            const now = Date.now();
-            await supabaseRequest("POST", `/worker_status`, {
-                id: "lotte_worker",
-                last_seen: now,
-                status: "online",
-                updated_at: new Date().toISOString(),
-                worker_secret: WORKER_SECRET
-            }, { "Prefer": "resolution=merge-duplicates" });
-        } catch (e) {}
+            const res = await supabaseRequest("GET", `/jobs?status=eq.pending&order=created_at.desc&limit=20`);
+            const jobs = JSON.parse(res.responseText || "[]");
+            
+            logger('info', `Tìm thấy ${jobs.length} job pending`);
+
+            if (jobs.length === 0) {
+                logger('warn', 'Không có job pending nào lúc này');
+                return;
+            }
+
+            for (const job of jobs) {
+                logger('info', `Đang thử claim job: ${job.id} | srcmk: ${job.srcmk_cd} | status: ${job.status}`);
+                await claimJobAtomic(job);
+            }
+        } catch (e) {
+            logger('error', 'Lỗi getPendingJobs:', e);
+        }
     }
 
-    // ==================== ATOMIC CLAIM ====================
     async function claimJobAtomic(rawJob) {
-        const jobId = rawJob.id || rawJob.job_id;
-        if (!jobId || processedJobIds.has(jobId)) return false;
+        const jobId = rawJob.id;
+        if (!jobId) return;
+
+        if (processedJobIds.has(jobId)) {
+            logger('warn', `Job ${jobId} đã được xử lý trước đó (local)`);
+            return;
+        }
 
         try {
-            const res = await supabaseRequest(
-                "PATCH",
-                `/jobs?id=eq.${jobId}&status=eq.pending`,
+            const res = await supabaseRequest("PATCH", 
+                `/jobs?id=eq.${jobId}&status=eq.pending`, 
                 {
                     status: "processing",
                     claimed_at: new Date().toISOString(),
@@ -99,222 +85,30 @@
             );
 
             const updated = JSON.parse(res.responseText || "[]");
+            logger('info', `PATCH response: ${updated.length} row(s) updated`);
 
             if (updated.length > 0) {
                 processedJobIds.set(jobId, Date.now());
-                addJobToQueue({
-                    job_id: jobId,
-                    str_cd: updated[0].str_cd || rawJob.str_cd || "",
-                    srcmk_cd: updated[0].srcmk_cd || rawJob.srcmk_cd || "",
-                    batch_id: updated[0].batch_id || rawJob.batch_id || "",
-                    chat_id: updated[0].chat_id || rawJob.chat_id || null
-                });
-                logger('info', `✅ Atomic claimed job ${jobId} (${updated[0].srcmk_cd})`);
-                return true;
-            }
-            return false;
-        } catch (e) {
-            logger('error', `Atomic claim failed:`, e);
-            return false;
-        }
-    }
-
-    async function getPendingJobs() {
-        try {
-            const res = await supabaseRequest("GET", `/jobs?status=eq.pending&order=created_at.desc&limit=50`);
-            const jobs = JSON.parse(res.responseText || "[]");
-            for (const row of jobs) {
-                await claimJobAtomic(row);
+                logger('info', `✅ ĐÃ CLAIM THÀNH CÔNG job ${jobId}`);
+                // Sau này sẽ thêm processNextJob ở đây
+            } else {
+                logger('warn', `Không claim được job ${jobId} (có thể do RLS hoặc job không còn pending)`);
             }
         } catch (e) {
-            logger('error', 'getPendingJobs error:', e);
-        }
-    }
-
-    async function updateJobToSupabase(jobId, data) {
-        try {
-            await supabaseRequest("PATCH", `/jobs?id=eq.${jobId}`, {
-                ...data,
-                worker_secret: WORKER_SECRET
-            });
-        } catch (e) {}
-    }
-
-    async function deleteJob(jobId) {
-        try { await supabaseRequest("DELETE", `/jobs?id=eq.${jobId}`); } catch (e) {}
-    }
-
-    function getCachedResult(strCd, srcmkCd) {
-        const key = `${strCd}:${srcmkCd}`;
-        const cached = resultCache.get(key);
-        if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) return cached.data;
-        return null;
-    }
-
-    function setCacheResult(strCd, srcmkCd, data) {
-        const key = `${strCd}:${srcmkCd}`;
-        resultCache.set(key, { data, timestamp: Date.now() });
-        if (resultCache.size > 150) resultCache.delete(resultCache.keys().next().value);
-    }
-
-    function subscribeToPendingJobs() {
-        if (!supabaseClient) return;
-        supabaseClient
-            .channel('pending-jobs-v15.6.3')
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'jobs',
-                filter: 'status=eq.pending'
-            }, async (payload) => {
-                if (payload.new?.id) await claimJobAtomic(payload.new);
-            })
-            .subscribe((status) => {
-                if (status === 'SUBSCRIBED') logger('info', 'Realtime connected');
-            });
-    }
-
-    function padStrCd(strCd) { return String(strCd).padStart(5, "0"); }
-
-    function buildProductSearchSSV(strCd, srcmkCd) {
-        const trackingParts = [
-            "_ga=GA1.1.1926722522.1779273587","_tt_enable_cookie=1","_ttp=01KS2FGQ5DSMV0QST60J6GQ9NR_.tt.1",
-            "_fbp=fb.1.1779273589322.638506231644770626","_gcl_au=1.1.521987338.1779273587.2028705533.1779275328.1779275328",
-            "KHANUSER=z4rrvm1e3ie7hj","ttcsid=1781444122718::1bply3lfNEMONUk-wYjJ.5.1781444136006.0::1.-3701.0::0.0.0.0::0.0.0",
-            "ttcsid_D34HLIRC77U5SFKT9RAG=1781444122717::Ys34mY0t4l3zL3CvLbae.5.1781444136009.1",
-            "_ga_6QLJ7DM4XW=GS2.1.s1781443507$o6$g1$t1781444233$j60$l0$h0"
-        ];
-        const tracking = trackingParts.join("\u001e");
-        const business = "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
-            "\u001eDataset:search\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)" +
-            "\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003\u001eN\u001f\u0003\u001f\u0003\u001f\u0003\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
-        return "SSV:utf-8\u001e" + tracking + "\u001e" + business + "\u001e\u001e";
-    }
-
-    function parseProductResponse(ssvText) {
-        if (!ssvText || ssvText.includes("ErrorCode:int=-1")) return { success: false, data: [] };
-        const parts = ssvText.split("\u001e");
-        const result = [];
-        let columns = [];
-        parts.forEach(part => {
-            if (part.startsWith("_RowType_")) {
-                columns = part.replace("_RowType_\u001f", "").split("\u001f").map(c => c.split(":")[0]);
-            } else if (part.startsWith("N\u001f")) {
-                const values = part.split("\u001f");
-                if (values.length > 1 && columns.length > 0) {
-                    const row = {};
-                    columns.forEach((col, i) => row[col] = values[i + 1] || "");
-                    result.push(row);
-                }
-            }
-        });
-        return { success: true, data: result };
-    }
-
-    function fetchProductData(strCd, srcmkCd) {
-        return new Promise(resolve => {
-            const cached = getCachedResult(strCd, srcmkCd);
-            if (cached) return resolve(cached);
-
-            let requestTimedOut = false;
-            const timeoutId = setTimeout(() => {
-                requestTimedOut = true;
-                location.reload();
-                resolve({ success: false, data: [], timedOut: true });
-            }, REQUEST_TIMEOUT_MS);
-
-            GM_xmlhttpRequest({
-                method: "POST",
-                url: "https://m.lottemart.vn/ivm/ivm71/ivm71002/selectDiscardRegList.do",
-                headers: { "Content-Type": "text/xml; charset=utf-8", "Accept": "application/xml, text/xml, */*" },
-                data: buildProductSearchSSV(padStrCd(strCd), srcmkCd),
-                onload: res => {
-                    clearTimeout(timeoutId);
-                    if (requestTimedOut) return;
-                    const parsed = parseProductResponse(res.responseText);
-                    if (parsed.success && parsed.data.length > 0) setCacheResult(strCd, srcmkCd, parsed);
-                    resolve(parsed);
-                },
-                onerror: () => {
-                    clearTimeout(timeoutId);
-                    if (requestTimedOut) return;
-                    location.reload();
-                    resolve({ success: false, data: [], timedOut: true });
-                }
-            });
-        });
-    }
-
-    async function processNextJob() {
-        if (activeJobs >= MAX_CONCURRENT || jobQueue.length === 0) return;
-        activeJobs++;
-        const job = jobQueue.shift();
-        const result = await fetchProductData(job.str_cd, job.srcmk_cd);
-
-        const summaryText = (!result.success || result.data.length === 0)
-            ? `❌ Không tìm thấy dữ liệu cho Kho: <code>${job.str_cd}</code> | Mã: <code>${job.srcmk_cd}</code>`
-            : formatResultText(job.str_cd, job.srcmk_cd, result.data);
-
-        await updateJobToSupabase(job.job_id, {
-            status: "done",
-            batch_id: job.batch_id,
-            chat_id: job.chat_id,
-            result: { summary_text: summaryText, raw_data: result.data || [] },
-            processed_at: new Date().toISOString()
-        });
-        setTimeout(() => deleteJob(job.job_id), 10 * 60 * 1000);
-        activeJobs--;
-        setTimeout(processNextJob, JOB_DELAY);
-    }
-
-    function addJobToQueue(job) {
-        jobQueue.push(job);
-        processNextJob();
-        processNextJob();
-    }
-
-    function formatResultText(strCd, srcmkCd, data) {
-        if (!data || data.length === 0) return `❌ Không tìm thấy sản phẩm cho Kho: <code>${strCd}</code> | Mã: <code>${srcmkCd}</code>`;
-        let text = `✅ <b>Kết quả tra cứu</b>\nKho: <code>${strCd}</code> | Mã: <code>${srcmkCd}</code>\n\n`;
-        data.forEach((item, i) => {
-            text += `<b>${i+1}. ${item.prod_nm || "Không có tên"}</b>\n• Tồn kho khả dụng: <code>${item.avail_jego_qty || 0}</code>\n• Giá mua: <code>${item.buy_prc || 0}</code>\n• Giá bán: <code>${item.sale_prc || 0}</code>\n\n`;
-        });
-        return text;
-    }
-
-    function keepSessionAlive() { location.reload(); }
-
-    function cleanupProcessedJobs() {
-        const now = Date.now();
-        for (const [id, ts] of processedJobIds) {
-            if (now - ts > PROCESSED_MAX_AGE_MS) processedJobIds.delete(id);
+            logger('error', `Lỗi khi claim job ${jobId}:`, e);
         }
     }
 
     async function start() {
-        // === SỬA Ở ĐÂY: Nới lỏng điều kiện phát hiện trang ===
-        const href = location.href;
-        const isMainPage = href.includes("gmd") || href.includes("lottemart.vn/gmd") || href.includes("m.lottemart.vn");
-        
-        if (!isMainPage) {
-            logger('warn', 'Không phải trang chính, bỏ qua');
-            return;
-        }
+        logger('info', 'Script bắt đầu chạy');
 
-        logger('info', 'Bắt đầu khởi động trên trang chính');
+        // Chạy ngay 1 lần
+        await getPendingJobs();
 
-        initSupabase();
-        if (supabaseClient) subscribeToPendingJobs();
+        // Sau đó poll mỗi 5 giây
+        setInterval(getPendingJobs, 5000);
 
-        await updateWorkerStatus();
-        getPendingJobs();
-
-        setInterval(getPendingJobs, FALLBACK_POLL_INTERVAL);
-        setInterval(updateWorkerStatus, 45000);
-        setInterval(keepSessionAlive, KEEP_ALIVE_INTERVAL);
-        setInterval(cleanupProcessedJobs, 15 * 60 * 1000);
-
-        logger('info', 'Lotem v15.6.3 started successfully');
+        logger('info', 'Đã khởi động polling');
     }
 
     start();
