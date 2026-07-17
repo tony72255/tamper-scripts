@@ -4,8 +4,8 @@
 // @version      15.6
 // @description  Fixed duplicate issue with atomic job claiming (pending → processing)
 // @author       Lotem
-//@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js 
-//@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js 
+@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
