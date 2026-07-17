@@ -1,11 +1,9 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.6.1 Atomic Claim)
+// @name         Lotte Mart - Supabase Realtime (v15.6.3 Fixed Page Detection)
 // @namespace    https://grok.x.ai
-// @version      15.6.1
-// @description  Fixed duplicate issue with atomic job claiming (pending → processing)
+// @version      15.6.3
+// @description  Fixed page detection for Nexacro + Atomic Claim
 // @author       Lotem
-@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js 
-@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
@@ -13,24 +11,20 @@
 // @require      https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js
 // @run-at       document-end
 // ==/UserScript==
-console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-size: 14px');
+
 (function () {
     'use strict';
-    console.log('%c[DEBUG] Bắt đầu chạy IIFE', 'color: yellow');
-    // ==================== CONFIG ====================
+
     const SUPABASE_URL = "https://xdnawsvcbjqxwvufrkxb.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkbmF3c3ZjYmpxeHd2dWZya3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTQ0NTgsImV4cCI6MjA5OTY5MDQ1OH0.TC46lk0CXuo0sp_X8KgbDAnnSkzRSRkl1XXuBixl3zY";
     const WORKER_SECRET = "lotte-mart-worker-2026";
     const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
-    console.log('%c[DEBUG] Đã định nghĩa biến config', 'color: yellow');
-    // Tạm thời bỏ qua check URL để test
-    console.log('%c[DEBUG] Bắt đầu khởi động...', 'color: cyan');
+
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
-    const FALLBACK_POLL_INTERVAL = 3000;           // Tăng nhẹ lên 3s để giảm race
+    const FALLBACK_POLL_INTERVAL = 3000;
     const LOG_LEVEL = 'info';
     const PROCESSED_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-
     const KEEP_ALIVE_INTERVAL = 12 * 60 * 1000;
     const CACHE_TTL_MS = 60 * 1000;
     const REQUEST_TIMEOUT_MS = 25000;
@@ -44,7 +38,7 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
     function logger(level, ...args) {
         const levels = { debug: 0, info: 1, warn: 2, error: 3 };
         if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 1)) {
-            const prefix = `[Lotem v15.6 ${level.toUpperCase()}]`;
+            const prefix = `[Lotem v15.6.3 ${level.toUpperCase()}]`;
             if (level === 'error') console.error(prefix, ...args);
             else if (level === 'warn') console.warn(prefix, ...args);
             else console.log(prefix, ...args);
@@ -88,21 +82,12 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
         } catch (e) {}
     }
 
-    // ==================== ATOMIC CLAIM (FIX DUPLICATE) ====================
+    // ==================== ATOMIC CLAIM ====================
     async function claimJobAtomic(rawJob) {
         const jobId = rawJob.id || rawJob.job_id;
-        if (!jobId) {
-            logger('warn', 'claimJobAtomic: missing job id');
-            return false;
-        }
-
-        // Nếu đã claim ở local thì bỏ qua
-        if (processedJobIds.has(jobId)) {
-            return false;
-        }
+        if (!jobId || processedJobIds.has(jobId)) return false;
 
         try {
-            // ATOMIC UPDATE: chỉ thành công nếu job vẫn còn status = 'pending'
             const res = await supabaseRequest(
                 "PATCH",
                 `/jobs?id=eq.${jobId}&status=eq.pending`,
@@ -116,9 +101,7 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
             const updated = JSON.parse(res.responseText || "[]");
 
             if (updated.length > 0) {
-                // Claim thành công → mới thêm vào queue
                 processedJobIds.set(jobId, Date.now());
-
                 addJobToQueue({
                     job_id: jobId,
                     str_cd: updated[0].str_cd || rawJob.str_cd || "",
@@ -126,16 +109,12 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
                     batch_id: updated[0].batch_id || rawJob.batch_id || "",
                     chat_id: updated[0].chat_id || rawJob.chat_id || null
                 });
-
                 logger('info', `✅ Atomic claimed job ${jobId} (${updated[0].srcmk_cd})`);
                 return true;
-            } else {
-                // Job đã bị thằng khác claim hoặc không còn pending
-                logger('debug', `Job ${jobId} already claimed or not pending`);
-                return false;
             }
+            return false;
         } catch (e) {
-            logger('error', `Atomic claim failed for job ${jobId}:`, e);
+            logger('error', `Atomic claim failed:`, e);
             return false;
         }
     }
@@ -144,9 +123,8 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
         try {
             const res = await supabaseRequest("GET", `/jobs?status=eq.pending&order=created_at.desc&limit=50`);
             const jobs = JSON.parse(res.responseText || "[]");
-
             for (const row of jobs) {
-                await claimJobAtomic(row); // Dùng atomic claim
+                await claimJobAtomic(row);
             }
         } catch (e) {
             logger('error', 'getPendingJobs error:', e);
@@ -159,55 +137,40 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
                 ...data,
                 worker_secret: WORKER_SECRET
             });
-        } catch (e) {
-            logger('error', `updateJobToSupabase error for ${jobId}:`, e);
-        }
+        } catch (e) {}
     }
 
     async function deleteJob(jobId) {
-        try {
-            await supabaseRequest("DELETE", `/jobs?id=eq.${jobId}`);
-        } catch (e) {}
+        try { await supabaseRequest("DELETE", `/jobs?id=eq.${jobId}`); } catch (e) {}
     }
 
     function getCachedResult(strCd, srcmkCd) {
         const key = `${strCd}:${srcmkCd}`;
         const cached = resultCache.get(key);
-        if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
-            return cached.data;
-        }
+        if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) return cached.data;
         return null;
     }
 
     function setCacheResult(strCd, srcmkCd, data) {
         const key = `${strCd}:${srcmkCd}`;
         resultCache.set(key, { data, timestamp: Date.now() });
-        if (resultCache.size > 150) {
-            const firstKey = resultCache.keys().next().value;
-            resultCache.delete(firstKey);
-        }
+        if (resultCache.size > 150) resultCache.delete(resultCache.keys().next().value);
     }
 
     function subscribeToPendingJobs() {
         if (!supabaseClient) return;
-
         supabaseClient
-            .channel('pending-jobs-v15.6')
+            .channel('pending-jobs-v15.6.3')
             .on('postgres_changes', {
                 event: 'INSERT',
                 schema: 'public',
                 table: 'jobs',
                 filter: 'status=eq.pending'
             }, async (payload) => {
-                const job = payload.new;
-                if (job && job.id) {
-                    await claimJobAtomic(job); // Dùng atomic claim
-                }
+                if (payload.new?.id) await claimJobAtomic(payload.new);
             })
             .subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    logger('info', 'Realtime connected (v15.6)');
-                }
+                if (status === 'SUBSCRIBED') logger('info', 'Realtime connected');
             });
     }
 
@@ -215,34 +178,21 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
 
     function buildProductSearchSSV(strCd, srcmkCd) {
         const trackingParts = [
-            "_ga=GA1.1.1926722522.1779273587",
-            "_tt_enable_cookie=1",
-            "_ttp=01KS2FGQ5DSMV0QST60J6GQ9NR_.tt.1",
-            "_fbp=fb.1.1779273589322.638506231644770626",
-            "_gcl_au=1.1.521987338.1779273587.2028705533.1779275328.1779275328",
-            "KHANUSER=z4rrvm1e3ie7hj",
-            "ttcsid=1781444122718::1bply3lfNEMONUk-wYjJ.5.1781444136006.0::1.-3701.0::0.0.0.0::0.0.0",
+            "_ga=GA1.1.1926722522.1779273587","_tt_enable_cookie=1","_ttp=01KS2FGQ5DSMV0QST60J6GQ9NR_.tt.1",
+            "_fbp=fb.1.1779273589322.638506231644770626","_gcl_au=1.1.521987338.1779273587.2028705533.1779275328.1779275328",
+            "KHANUSER=z4rrvm1e3ie7hj","ttcsid=1781444122718::1bply3lfNEMONUk-wYjJ.5.1781444136006.0::1.-3701.0::0.0.0.0::0.0.0",
             "ttcsid_D34HLIRC77U5SFKT9RAG=1781444122717::Ys34mY0t4l3zL3CvLbae.5.1781444136009.1",
             "_ga_6QLJ7DM4XW=GS2.1.s1781443507$o6$g1$t1781444233$j60$l0$h0"
         ];
-
         const tracking = trackingParts.join("\u001e");
-
-        const business = 
-            "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
-            "\u001eDataset:search" +
-            "\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)" +
-            "\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003" +
-            "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003" +
-            "\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
-
+        const business = "natCd=VNM\u001elanguage=ENG\u001ecorpFg=01\u001emenuId=M06555\u001epage=false" +
+            "\u001eDataset:search\u001e_RowType_\u001fstr_cd:STRING(256)\u001fsrcmk_cd:STRING(256)\u001fprod_cd:STRING(256)" +
+            "\u001eN\u001f" + strCd + "\u001f" + srcmkCd + "\u001f\u0003\u001eN\u001f\u0003\u001f\u0003\u001f\u0003\u001eN\u001f\u0003\u001f\u0003\u001f\u0003";
         return "SSV:utf-8\u001e" + tracking + "\u001e" + business + "\u001e\u001e";
     }
 
     function parseProductResponse(ssvText) {
-        if (!ssvText || ssvText.includes("ErrorCode:int=-1")) {
-            return { success: false, data: [] };
-        }
+        if (!ssvText || ssvText.includes("ErrorCode:int=-1")) return { success: false, data: [] };
         const parts = ssvText.split("\u001e");
         const result = [];
         let columns = [];
@@ -264,16 +214,11 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
     function fetchProductData(strCd, srcmkCd) {
         return new Promise(resolve => {
             const cached = getCachedResult(strCd, srcmkCd);
-            if (cached) {
-                logger('debug', `Cache hit: ${strCd}-${srcmkCd}`);
-                return resolve(cached);
-            }
+            if (cached) return resolve(cached);
 
             let requestTimedOut = false;
-
             const timeoutId = setTimeout(() => {
                 requestTimedOut = true;
-                logger('warn', `Request timeout → Auto reload`);
                 location.reload();
                 resolve({ success: false, data: [], timedOut: true });
             }, REQUEST_TIMEOUT_MS);
@@ -281,26 +226,18 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
             GM_xmlhttpRequest({
                 method: "POST",
                 url: "https://m.lottemart.vn/ivm/ivm71/ivm71002/selectDiscardRegList.do",
-                headers: { 
-                    "Content-Type": "text/xml; charset=utf-8", 
-                    "Accept": "application/xml, text/xml, */*" 
-                },
+                headers: { "Content-Type": "text/xml; charset=utf-8", "Accept": "application/xml, text/xml, */*" },
                 data: buildProductSearchSSV(padStrCd(strCd), srcmkCd),
                 onload: res => {
                     clearTimeout(timeoutId);
                     if (requestTimedOut) return;
-
                     const parsed = parseProductResponse(res.responseText);
-                    if (parsed.success && parsed.data.length > 0) {
-                        setCacheResult(strCd, srcmkCd, parsed);
-                    }
+                    if (parsed.success && parsed.data.length > 0) setCacheResult(strCd, srcmkCd, parsed);
                     resolve(parsed);
                 },
                 onerror: () => {
                     clearTimeout(timeoutId);
                     if (requestTimedOut) return;
-
-                    logger('warn', 'Network error → Auto reload');
                     location.reload();
                     resolve({ success: false, data: [], timedOut: true });
                 }
@@ -310,10 +247,8 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
 
     async function processNextJob() {
         if (activeJobs >= MAX_CONCURRENT || jobQueue.length === 0) return;
-
         activeJobs++;
         const job = jobQueue.shift();
-
         const result = await fetchProductData(job.str_cd, job.srcmk_cd);
 
         const summaryText = (!result.success || result.data.length === 0)
@@ -327,10 +262,7 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
             result: { summary_text: summaryText, raw_data: result.data || [] },
             processed_at: new Date().toISOString()
         });
-
-        // Xóa job sau 10 phút (để bot kịp nhận)
         setTimeout(() => deleteJob(job.job_id), 10 * 60 * 1000);
-
         activeJobs--;
         setTimeout(processNextJob, JOB_DELAY);
     }
@@ -342,9 +274,7 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
     }
 
     function formatResultText(strCd, srcmkCd, data) {
-        if (!data || data.length === 0) {
-            return `❌ Không tìm thấy sản phẩm cho Kho: <code>${strCd}</code> | Mã: <code>${srcmkCd}</code>`;
-        }
+        if (!data || data.length === 0) return `❌ Không tìm thấy sản phẩm cho Kho: <code>${strCd}</code> | Mã: <code>${srcmkCd}</code>`;
         let text = `✅ <b>Kết quả tra cứu</b>\nKho: <code>${strCd}</code> | Mã: <code>${srcmkCd}</code>\n\n`;
         data.forEach((item, i) => {
             text += `<b>${i+1}. ${item.prod_nm || "Không có tên"}</b>\n• Tồn kho khả dụng: <code>${item.avail_jego_qty || 0}</code>\n• Giá mua: <code>${item.buy_prc || 0}</code>\n• Giá bán: <code>${item.sale_prc || 0}</code>\n\n`;
@@ -352,23 +282,26 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
         return text;
     }
 
-    function keepSessionAlive() {
-        logger('info', '🔄 Keep-alive: Reload trang');
-        location.reload();
-    }
+    function keepSessionAlive() { location.reload(); }
 
     function cleanupProcessedJobs() {
         const now = Date.now();
         for (const [id, ts] of processedJobIds) {
-            if (now - ts > PROCESSED_MAX_AGE_MS) {
-                processedJobIds.delete(id);
-            }
+            if (now - ts > PROCESSED_MAX_AGE_MS) processedJobIds.delete(id);
         }
     }
 
     async function start() {
-        const isMainPage = location.href.includes("gmd/index.html") || location.href.includes("m.lottemart.vn/gmd");
-        if (!isMainPage) return;
+        // === SỬA Ở ĐÂY: Nới lỏng điều kiện phát hiện trang ===
+        const href = location.href;
+        const isMainPage = href.includes("gmd") || href.includes("lottemart.vn/gmd") || href.includes("m.lottemart.vn");
+        
+        if (!isMainPage) {
+            logger('warn', 'Không phải trang chính, bỏ qua');
+            return;
+        }
+
+        logger('info', 'Bắt đầu khởi động trên trang chính');
 
         initSupabase();
         if (supabaseClient) subscribeToPendingJobs();
@@ -381,7 +314,7 @@ console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-
         setInterval(keepSessionAlive, KEEP_ALIVE_INTERVAL);
         setInterval(cleanupProcessedJobs, 15 * 60 * 1000);
 
-        logger('info', 'Lotem v15.6 Atomic Claim started - Duplicate fix applied');
+        logger('info', 'Lotem v15.6.3 started successfully');
     }
 
     start();
