@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Lotte Mart - DEBUG v15.6.4 (Verbose Claim)
+// @name         Lotte Mart - v15.6.5 (Fixed RLS + Response)
 // @namespace    https://grok.x.ai
-// @version      15.6.4
+// @version      15.6.5
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
@@ -20,13 +20,11 @@
 
     let processedJobIds = new Map();
 
-    function logger(level, ...args) {
-        const prefix = `[Lotem DEBUG ${level.toUpperCase()}]`;
-        if (level === 'error') console.error(prefix, ...args);
-        else console.log(prefix, ...args);
+    function logger(level, msg, data = '') {
+        console.log(`[Lotem v15.6.5 ${level}] ${msg}`, data);
     }
 
-    function supabaseRequest(method, path, body = null) {
+    function supabaseRequest(method, path, body = null, extraHeaders = {}) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
                 method,
@@ -34,7 +32,8 @@
                 headers: {
                     "Content-Type": "application/json; charset=utf-8",
                     "apikey": SUPABASE_ANON_KEY,
-                    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+                    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+                    ...extraHeaders
                 },
                 data: body ? JSON.stringify(body) : undefined,
                 onload: resolve,
@@ -44,71 +43,56 @@
     }
 
     async function getPendingJobs() {
-        logger('info', 'Đang query jobs pending...');
         try {
             const res = await supabaseRequest("GET", `/jobs?status=eq.pending&order=created_at.desc&limit=20`);
             const jobs = JSON.parse(res.responseText || "[]");
-            
-            logger('info', `Tìm thấy ${jobs.length} job pending`);
-
-            if (jobs.length === 0) {
-                logger('warn', 'Không có job pending nào lúc này');
-                return;
-            }
+            logger('INFO', `Tìm thấy ${jobs.length} job pending`);
 
             for (const job of jobs) {
-                logger('info', `Đang thử claim job: ${job.id} | srcmk: ${job.srcmk_cd} | status: ${job.status}`);
-                await claimJobAtomic(job);
+                if (!processedJobIds.has(job.id)) {
+                    await claimJobAtomic(job);
+                }
             }
         } catch (e) {
-            logger('error', 'Lỗi getPendingJobs:', e);
+            logger('ERROR', 'getPendingJobs lỗi', e);
         }
     }
 
-    async function claimJobAtomic(rawJob) {
-        const jobId = rawJob.id;
-        if (!jobId) return;
-
-        if (processedJobIds.has(jobId)) {
-            logger('warn', `Job ${jobId} đã được xử lý trước đó (local)`);
-            return;
-        }
-
+    async function claimJobAtomic(job) {
         try {
-            const res = await supabaseRequest("PATCH", 
-                `/jobs?id=eq.${jobId}&status=eq.pending`, 
+            // Dùng return=representation để lấy kết quả
+            const res = await supabaseRequest(
+                "PATCH",
+                `/jobs?id=eq.${job.id}&status=eq.pending`,
                 {
                     status: "processing",
                     claimed_at: new Date().toISOString(),
                     worker_secret: WORKER_SECRET
-                }
+                },
+                { "Prefer": "return=representation" }   // ← quan trọng
             );
 
-            const updated = JSON.parse(res.responseText || "[]");
-            logger('info', `PATCH response: ${updated.length} row(s) updated`);
+            let updated = [];
+            try {
+                updated = JSON.parse(res.responseText || "[]");
+            } catch (_) {}
 
             if (updated.length > 0) {
-                processedJobIds.set(jobId, Date.now());
-                logger('info', `✅ ĐÃ CLAIM THÀNH CÔNG job ${jobId}`);
-                // Sau này sẽ thêm processNextJob ở đây
+                processedJobIds.set(job.id, Date.now());
+                logger('SUCCESS', `✅ Claim thành công: ${job.srcmk_cd}`);
+                // Sau này sẽ gọi process job ở đây
             } else {
-                logger('warn', `Không claim được job ${jobId} (có thể do RLS hoặc job không còn pending)`);
+                logger('WARN', `Không update được job ${job.id} (RLS chặn hoặc job đã bị claim)`);
             }
         } catch (e) {
-            logger('error', `Lỗi khi claim job ${jobId}:`, e);
+            logger('ERROR', `Lỗi claim job ${job.id}`, e);
         }
     }
 
     async function start() {
-        logger('info', 'Script bắt đầu chạy');
-
-        // Chạy ngay 1 lần
+        logger('INFO', 'Worker khởi động');
         await getPendingJobs();
-
-        // Sau đó poll mỗi 5 giây
-        setInterval(getPendingJobs, 5000);
-
-        logger('info', 'Đã khởi động polling');
+        setInterval(getPendingJobs, 4000);
     }
 
     start();
