@@ -1,18 +1,18 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.5 Stable)
+// @name         Lotte Mart - Supabase Realtime (v15.6 Atomic Claim)
 // @namespace    https://grok.x.ai
-// @version      15.5
-// @description  Stable version - Early claim + Fast poll 2s
+// @version      15.6
+// @description  Fixed duplicate issue with atomic job claiming (pending → processing)
 // @author       Lotem
-@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
-@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+//@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js 
+//@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
 // @connect      xdnawsvcbjqxwvufrkxb.supabase.co
 // @require      https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js
 // @run-at       document-end
-// ==/UserScript==
+// ==UserScript==
 
 (function () {
     'use strict';
@@ -25,7 +25,7 @@
 
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
-    const FALLBACK_POLL_INTERVAL = 2000;           // 2 giây (nhanh)
+    const FALLBACK_POLL_INTERVAL = 3000;           // Tăng nhẹ lên 3s để giảm race
     const LOG_LEVEL = 'info';
     const PROCESSED_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
@@ -42,7 +42,7 @@
     function logger(level, ...args) {
         const levels = { debug: 0, info: 1, warn: 2, error: 3 };
         if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 1)) {
-            const prefix = `[Lotem v15 ${level.toUpperCase()}]`;
+            const prefix = `[Lotem v15.6 ${level.toUpperCase()}]`;
             if (level === 'error') console.error(prefix, ...args);
             else if (level === 'warn') console.warn(prefix, ...args);
             else console.log(prefix, ...args);
@@ -86,23 +86,69 @@
         } catch (e) {}
     }
 
+    // ==================== ATOMIC CLAIM (FIX DUPLICATE) ====================
+    async function claimJobAtomic(rawJob) {
+        const jobId = rawJob.id || rawJob.job_id;
+        if (!jobId) {
+            logger('warn', 'claimJobAtomic: missing job id');
+            return false;
+        }
+
+        // Nếu đã claim ở local thì bỏ qua
+        if (processedJobIds.has(jobId)) {
+            return false;
+        }
+
+        try {
+            // ATOMIC UPDATE: chỉ thành công nếu job vẫn còn status = 'pending'
+            const res = await supabaseRequest(
+                "PATCH",
+                `/jobs?id=eq.${jobId}&status=eq.pending`,
+                {
+                    status: "processing",
+                    claimed_at: new Date().toISOString(),
+                    worker_secret: WORKER_SECRET
+                }
+            );
+
+            const updated = JSON.parse(res.responseText || "[]");
+
+            if (updated.length > 0) {
+                // Claim thành công → mới thêm vào queue
+                processedJobIds.set(jobId, Date.now());
+
+                addJobToQueue({
+                    job_id: jobId,
+                    str_cd: updated[0].str_cd || rawJob.str_cd || "",
+                    srcmk_cd: updated[0].srcmk_cd || rawJob.srcmk_cd || "",
+                    batch_id: updated[0].batch_id || rawJob.batch_id || "",
+                    chat_id: updated[0].chat_id || rawJob.chat_id || null
+                });
+
+                logger('info', `✅ Atomic claimed job ${jobId} (${updated[0].srcmk_cd})`);
+                return true;
+            } else {
+                // Job đã bị thằng khác claim hoặc không còn pending
+                logger('debug', `Job ${jobId} already claimed or not pending`);
+                return false;
+            }
+        } catch (e) {
+            logger('error', `Atomic claim failed for job ${jobId}:`, e);
+            return false;
+        }
+    }
+
     async function getPendingJobs() {
         try {
             const res = await supabaseRequest("GET", `/jobs?status=eq.pending&order=created_at.desc&limit=50`);
             const jobs = JSON.parse(res.responseText || "[]");
-            jobs.forEach(row => {
-                if (!processedJobIds.has(row.id)) {
-                    processedJobIds.set(row.id, Date.now()); // Claim sớm
-                    addJobToQueue({
-                        job_id: row.id,
-                        str_cd: row.str_cd || "",
-                        srcmk_cd: row.srcmk_cd || "",
-                        batch_id: row.batch_id || "",
-                        chat_id: row.chat_id || null
-                    });
-                }
-            });
-        } catch (e) {}
+
+            for (const row of jobs) {
+                await claimJobAtomic(row); // Dùng atomic claim
+            }
+        } catch (e) {
+            logger('error', 'getPendingJobs error:', e);
+        }
     }
 
     async function updateJobToSupabase(jobId, data) {
@@ -111,7 +157,9 @@
                 ...data,
                 worker_secret: WORKER_SECRET
             });
-        } catch (e) {}
+        } catch (e) {
+            logger('error', `updateJobToSupabase error for ${jobId}:`, e);
+        }
     }
 
     async function deleteJob(jobId) {
@@ -142,28 +190,21 @@
         if (!supabaseClient) return;
 
         supabaseClient
-            .channel('pending-jobs-v15')
+            .channel('pending-jobs-v15.6')
             .on('postgres_changes', {
                 event: 'INSERT',
                 schema: 'public',
                 table: 'jobs',
                 filter: 'status=eq.pending'
-            }, (payload) => {
+            }, async (payload) => {
                 const job = payload.new;
-                if (job && job.id && !processedJobIds.has(job.id)) {
-                    processedJobIds.set(job.id, Date.now()); // Claim sớm
-                    addJobToQueue({
-                        job_id: job.id,
-                        str_cd: job.str_cd || "",
-                        srcmk_cd: job.srcmk_cd || "",
-                        batch_id: job.batch_id || "",
-                        chat_id: job.chat_id || null
-                    });
+                if (job && job.id) {
+                    await claimJobAtomic(job); // Dùng atomic claim
                 }
             })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
-                    logger('info', 'Realtime connected');
+                    logger('info', 'Realtime connected (v15.6)');
                 }
             });
     }
@@ -270,7 +311,6 @@
 
         activeJobs++;
         const job = jobQueue.shift();
-        processedJobIds.set(job.job_id, Date.now());
 
         const result = await fetchProductData(job.str_cd, job.srcmk_cd);
 
@@ -286,6 +326,7 @@
             processed_at: new Date().toISOString()
         });
 
+        // Xóa job sau 10 phút (để bot kịp nhận)
         setTimeout(() => deleteJob(job.job_id), 10 * 60 * 1000);
 
         activeJobs--;
@@ -338,7 +379,7 @@
         setInterval(keepSessionAlive, KEEP_ALIVE_INTERVAL);
         setInterval(cleanupProcessedJobs, 15 * 60 * 1000);
 
-        logger('info', 'Lotem v15.2 Stable started');
+        logger('info', 'Lotem v15.6 Atomic Claim started - Duplicate fix applied');
     }
 
     start();
