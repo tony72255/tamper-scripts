@@ -12,7 +12,7 @@
 // @connect      xdnawsvcbjqxwvufrkxb.supabase.co
 // @require      https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js
 // @run-at       document-end
-// ==UserScript==
+// ==/UserScript==
 console.log('%c[DEBUG] tam.js script đã được inject!', 'color: lime; font-size: 14px');
 (function () {
     'use strict';
