@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name         Lotte Mart - Supabase Realtime (v15.7 Stable)
+// @name         Lotte Mart - Supabase Realtime (v15.8 Fixed)
 // @namespace    https://grok.x.ai
-// @version      15.7
-// @description  Stable version - Early claim + Fast poll 2s
+// @version      15.8
+// @description  Fixed Realtime bug + Improved atomic claim logic
 // @author       Lotem
-//@updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
-//@downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+// @updateURL    https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
+// @downloadURL  https://raw.githubusercontent.com/tony72255/tamper-scripts/main/src/main.user.js
 // @match        https://gmd.lottemart.vn/*
 // @match        https://m.lottemart.vn/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,6 @@
 (function () {
     'use strict';
 
-
     // ==================== CONFIG ====================
     const SUPABASE_URL = "https://xdnawsvcbjqxwvufrkxb.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhkbmF3c3ZjYmpxeHd2dWZya3hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTQ0NTgsImV4cCI6MjA5OTY5MDQ1OH0.TC46lk0CXuo0sp_X8KgbDAnnSkzRSRkl1XXuBixl3zY";
@@ -26,7 +25,7 @@
 
     const JOB_DELAY = 300;
     const MAX_CONCURRENT = 2;
-    const FALLBACK_POLL_INTERVAL = 2000;           // 2 giây (nhanh)
+    const FALLBACK_POLL_INTERVAL = 2000;
     const LOG_LEVEL = 'info';
     const PROCESSED_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
@@ -93,7 +92,6 @@
             const jobs = JSON.parse(res.responseText || "[]");
             jobs.forEach(row => {
                 if (!processedJobIds.has(row.id)) {
-                    processedJobIds.set(row.id, Date.now()); // Claim sớm
                     addJobToQueue({
                         job_id: row.id,
                         str_cd: row.str_cd || "",
@@ -114,29 +112,31 @@
             });
         } catch (e) {}
     }
-    async function claimJobAtomic(jobId) {
-    if (!jobId) {
-        logger('error', 'claimJobAtomic gọi với jobId rỗng/undefined');
-        return false;
-    }
-    try {
-        const res = await supabaseRequest(
-            "PATCH",
-            `/jobs?id=eq.${jobId}&status=eq.pending`,
-            {
-                status: "processing",
-                worker_secret: WORKER_SECRET
-            },
-            { "Prefer": "return=representation" }
-        );
 
-        const updated = JSON.parse(res.responseText || "[]");
-        return updated.length > 0;
-    } catch (e) {
-        logger('error', 'claimJobAtomic failed', e);
-        return false;
+    async function claimJobAtomic(jobId) {
+        if (!jobId) {
+            logger('error', 'claimJobAtomic gọi với jobId rỗng/undefined');
+            return false;
+        }
+        try {
+            const res = await supabaseRequest(
+                "PATCH",
+                `/jobs?id=eq.${jobId}&status=eq.pending`,
+                {
+                    status: "processing",
+                    worker_secret: WORKER_SECRET
+                },
+                { "Prefer": "return=representation" }
+            );
+
+            const updated = JSON.parse(res.responseText || "[]");
+            return updated.length > 0;
+        } catch (e) {
+            logger('error', 'claimJobAtomic failed', e);
+            return false;
+        }
     }
-}
+
     async function deleteJob(jobId) {
         try {
             await supabaseRequest("DELETE", `/jobs?id=eq.${jobId}`);
@@ -174,13 +174,12 @@
             }, (payload) => {
                 const job = payload.new;
                 if (job && job.id && !processedJobIds.has(job.id)) {
-                    processedJobIds.set(job.id, Date.now()); // Claim sớm
                     addJobToQueue({
-                        job_id: row.id,
-                        str_cd: row.str_cd || "",
-                        srcmk_cd: row.srcmk_cd || "",
-                        batch_id: row.batch_id || "",
-                        chat_id: row.chat_id || null
+                        job_id: job.id,
+                        str_cd: job.str_cd || "",
+                        srcmk_cd: job.srcmk_cd || "",
+                        batch_id: job.batch_id || "",
+                        chat_id: job.chat_id || null
                     });
                 }
             })
@@ -289,58 +288,62 @@
     }
 
     async function processNextJob() {
-    if (activeJobs >= MAX_CONCURRENT || jobQueue.length === 0) return;
+        if (activeJobs >= MAX_CONCURRENT || jobQueue.length === 0) return;
 
-    const job = jobQueue.shift();
+        const job = jobQueue.shift();
 
-    // === BẢO VỆ: Kiểm tra job hợp lệ ===
-    if (!job || !job.job_id) {
-        logger('warn', 'Invalid job object in queue (thiếu job_id), skip', job);
-        setTimeout(processNextJob, JOB_DELAY);
-        return;
-    }
+        if (!job || !job.job_id) {
+            logger('warn', 'Invalid job object in queue (thiếu job_id), skip', job);
+            setTimeout(processNextJob, JOB_DELAY);
+            return;
+        }
 
-    // === ATOMIC CLAIM ===
-    const claimed = await claimJobAtomic(job.job_id);
-    if (!claimed) {
-        logger('warn', `Job ${job.job_id} đã bị worker khác claim`);
+        // === IMPROVED CLAIM LOGIC ===
+        if (processedJobIds.has(job.job_id)) {
+            setTimeout(processNextJob, JOB_DELAY);
+            return;
+        }
+
+        const claimed = await claimJobAtomic(job.job_id);
+        if (!claimed) {
+            logger('warn', `Job ${job.job_id} đã bị worker khác claim hoặc không còn pending`);
+            processedJobIds.set(job.job_id, Date.now());
+            setTimeout(processNextJob, JOB_DELAY);
+            return;
+        }
+
         processedJobIds.set(job.job_id, Date.now());
+        activeJobs++;
+
+        const result = await fetchProductData(job.str_cd, job.srcmk_cd);
+
+        const summaryText = (!result.success || result.data.length === 0)
+            ? `❌ Không tìm thấy dữ liệu cho Kho: <code>${job.str_cd}</code> | Mã: <code>${job.srcmk_cd}</code>`
+            : formatResultText(job.str_cd, job.srcmk_cd, result.data);
+
+        await updateJobToSupabase(job.job_id, {
+            status: "done",
+            batch_id: job.batch_id,
+            chat_id: job.chat_id,
+            result: { summary_text: summaryText, raw_data: result.data || [] },
+            processed_at: new Date().toISOString()
+        });
+
+        setTimeout(() => deleteJob(job.job_id), 10 * 60 * 1000);
+
+        activeJobs--;
         setTimeout(processNextJob, JOB_DELAY);
-        return;
     }
-
-    processedJobIds.set(job.job_id, Date.now());
-    activeJobs++;
-
-    const result = await fetchProductData(job.str_cd, job.srcmk_cd);
-
-    const summaryText = (!result.success || result.data.length === 0)
-        ? `❌ Không tìm thấy dữ liệu cho Kho: <code>${job.str_cd}</code> | Mã: <code>${job.srcmk_cd}</code>`
-        : formatResultText(job.str_cd, job.srcmk_cd, result.data);
-
-    await updateJobToSupabase(job.job_id, {
-        status: "done",
-        batch_id: job.batch_id,
-        chat_id: job.chat_id,
-        result: { summary_text: summaryText, raw_data: result.data || [] },
-        processed_at: new Date().toISOString()
-    });
-
-    setTimeout(() => deleteJob(job.job_id), 10 * 60 * 1000);
-
-    activeJobs--;
-    setTimeout(processNextJob, JOB_DELAY);
-}
 
     function addJobToQueue(job) {
-    if (!job || !job.job_id) {
-        logger('warn', 'addJobToQueue bị gọi với job không hợp lệ, bỏ qua', job, new Error().stack);
-        return;
+        if (!job || !job.job_id) {
+            logger('warn', 'addJobToQueue bị gọi với job không hợp lệ, bỏ qua', job, new Error().stack);
+            return;
+        }
+        jobQueue.push(job);
+        processNextJob();
+        processNextJob();
     }
-    jobQueue.push(job);
-    processNextJob();
-    processNextJob();
-}
 
     function formatResultText(strCd, srcmkCd, data) {
         if (!data || data.length === 0) {
@@ -382,7 +385,7 @@
         setInterval(keepSessionAlive, KEEP_ALIVE_INTERVAL);
         setInterval(cleanupProcessedJobs, 15 * 60 * 1000);
 
-        logger('info', 'Lotem v15.2 Stable started');
+        logger('info', 'Lotem v15.8 Fixed started');
     }
 
     start();
